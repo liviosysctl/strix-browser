@@ -10,9 +10,13 @@ search of the shell grows into this window, so both use the same plate, measures
 | Part | What it is |
 |---|---|
 | Pages | Qt WebEngine (Chromium), one view for every tab |
-| Window | QML in `qml/`, run by Quickshell: `shell.qml`, `Browser.qml` and the settings in `Options.qml` |
+| Windows | QML in `qml/`, run by Quickshell: `Browser.qml` is what the windows share, `BrowserWindow.qml` one window, `Options.qml` the settings |
 | Quickshell | The one of nixpkgs with `nix/quickshell-webengine.patch`: a pragma that sets up Qt WebEngine before the application starts, and a hook that asks a service about every request of a page. Only the browser runs this build; the shell of the desktop keeps the plain one |
-| Back end | Rust, in `backend/`: the request filter, the history, the tabs of the last session, the settings. It runs beside the browser and talks to the window over a Unix socket, one JSON object per line |
+| Back end | Rust, in `backend/`: the request filter, the history, the bookmarks, the passwords, the tabs of the last session, the settings. One runs for the session, beside the browsers, and talks to the windows over a Unix socket, one JSON object per line |
+| Passwords | A password typed into a page is offered to be kept, and filled in the next time on the same origin. They are kept in the keyring of the session (the Secret Service) and nowhere else; the back end reaches it through `secret-tool` |
+| Private windows | A browser of its own (`strix-browser --private`) whose pages leave nothing behind: no cookies and no cache on the disk, no history, no session. The filter still asks |
+| Streaming (DRM) | Qt WebEngine uses the Widevine module that Firefox fetches into its profile; the browser brings none of its own |
+| Graphics card | `backend --flags` says how Chromium is started: with the setting on, pages are drawn and video is decoded by the graphics card also where Chromium's own list would leave it out |
 | Ad blocker | Built in. The back end reads the filter lists uBlock Origin starts with (its own, EasyList, EasyPrivacy, Peter Lowe's) with Brave's engine (`adblock`), answers Qt WebEngine for every request and tells the window what a page should hide. The lists are fetched at the first start and every four days. The Chromium of Qt does not apply the blocking rules of extensions, so uBlock Origin itself cannot do this here, and there are no extensions |
 
 A tab that has not been looked at for five minutes and plays nothing is discarded: Chromium lets go
@@ -24,6 +28,7 @@ of its page and loads it again when the tab is chosen. That is where a browser's
 nix build            # the package: the command strix-browser and its entry for the app search
 strix-browser        # a window with an empty tab
 strix-browser URL    # a tab for URL, in the browser that already runs if there is one
+strix-browser --private [URL]   # the same in a private browser
 ```
 
 The search of the shell grows into the browser: it starts it with `STRIX_BROWSER_HIDDEN=1`, so the
@@ -40,6 +45,9 @@ It needs the QML module of StrixUI in `QML_IMPORT_PATH` and the theme of the ses
 | Ctrl T | A new tab |
 | Ctrl W | Closes the tab |
 | Ctrl Shift T | Brings the last closed tab back |
+| Ctrl N | A new window |
+| Ctrl Shift N | A private window |
+| Ctrl D | Keeps the page as a bookmark, or lets go of it |
 | Ctrl Tab, Ctrl Shift Tab | The next tab, the one before |
 | Ctrl L | The address |
 | Ctrl R, F5 | Loads the page again |
@@ -51,8 +59,7 @@ It needs the QML module of StrixUI in `QML_IMPORT_PATH` and the theme of the ses
 
 ## What is not there
 
-Bookmarks, sync, a password manager, DRM for streaming services, more than one window, private
-tabs, extensions. Security fixes of Chromium arrive with the next version of Qt, later than in
-Chromium itself.
+Sync between machines and extensions. Security fixes of Chromium arrive with the next version of
+Qt, later than in Chromium itself.
 
 Commits and releases follow [CONTRIBUTING.md](CONTRIBUTING.md).

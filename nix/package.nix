@@ -11,6 +11,8 @@
   quickshell,
   qt6,
   coreutils,
+  libsecret,
+  runCommand,
   rustPlatform,
 }:
 
@@ -48,11 +50,17 @@ let
     installPhase = "cp -r . $out";
   };
 
+  # The same window under a path of its own: Quickshell tells its instances apart by the path,
+  # so a private browser is not the one a link from outside opens in
+  qmlPrivate = runCommand "strix-browser-qml-private" { } "cp -r ${qml} $out";
+
   command = writeShellApplication {
     name = "strix-browser";
     runtimeInputs = [
       quickshell-webengine
       coreutils
+      # secret-tool, through which the back end keeps passwords in the keyring
+      libsecret
     ];
     text = ''
       # --show: the window of a browser that was started hidden (STRIX_BROWSER_HIDDEN), as soon
@@ -64,20 +72,30 @@ let
         done
         exit 1
       fi
-      # One browser for the session: a second start opens its address as a tab in the first
-      if qs -p ${qml} ipc call browser tabs >/dev/null 2>&1; then
-        exec qs -p ${qml} ipc call browser open "''${1:-}"
+      # --private: a browser of its own that keeps nothing of what is opened in it
+      qml=${qml}
+      if [ "''${1:-}" = --private ]; then
+        shift
+        qml=${qmlPrivate}
+        export STRIX_BROWSER_PRIVATE=1
       fi
 
-      # The back end beside the browser, for as long as the browser runs. Qt WebEngine asks it
-      # about every request over the socket named here (quickshell-webengine.patch).
-      runtime="''${XDG_RUNTIME_DIR:?}/strix"
+      # One browser of each kind for the session: a second start opens its address as a tab in
+      # the first
+      if qs -p "$qml" ipc call browser tabs >/dev/null 2>&1; then
+        exec qs -p "$qml" ipc call browser open "''${1:-}"
+      fi
+
+      # The back end beside the browser: it serves every browser of the session, leaves when
+      # another one already runs, and ends by itself after the last window. Qt WebEngine asks it
+      # about every request over the socket named here (quickshell-webengine.patch), and it says
+      # how Chromium is started (the graphics card, by the settings).
       ${lib.getExe backend} &
-      backend=$!
-      trap 'kill "$backend" 2>/dev/null || true' EXIT
-      export QS_WEBENGINE_REQUEST_FILTER="$runtime/browser-filter.sock"
+      flags=$(${lib.getExe backend} --flags) || flags=""
+      export QTWEBENGINE_CHROMIUM_FLAGS="$flags ''${QTWEBENGINE_CHROMIUM_FLAGS:-}"
+      export QS_WEBENGINE_REQUEST_FILTER="''${XDG_RUNTIME_DIR:?}/strix/browser-filter.sock"
       export STRIX_BROWSER_OPEN="''${1:-}"
-      qs -p ${qml}
+      exec qs -p "$qml"
     '';
   };
 
@@ -99,6 +117,10 @@ let
       "x-scheme-handler/https"
     ];
     startupWMClass = "strix-browser";
+    actions.private = {
+      name = "New private window";
+      exec = "strix-browser --private";
+    };
   };
 in
 stdenvNoCC.mkDerivation {

@@ -1,6 +1,6 @@
-// The settings of the browser, where the page stands: where a search goes, the filter, what comes
-// back at the next start, when a tab in the background lets go of its page, the size of pages,
-// the history. The back end keeps them (store.rs); this page only shows them and says what was
+// The settings of the browser, where the page stands: where a search goes, the filter, the
+// passwords, what comes back at the next start, when a tab in the background lets go of its
+// page, the size of pages, the graphics card, the history. The back end keeps them (store.rs); this page only shows them and says what was
 // chosen.
 import QtQuick
 import Strix
@@ -71,6 +71,12 @@ Item {
             }
             SettingRow {
                 width: parent.width
+                title: "Passwords"
+                text: "Offer to keep a password that was typed into a page, and fill it in the next time. They are kept in the keyring of the session, which opens with the login"
+                Switch { checked: root.settings.passwords; onToggled: root.change({ passwords: checked }) }
+            }
+            SettingRow {
+                width: parent.width
                 title: "Tabs of the last session"
                 text: "Open them again when the browser starts"
                 Switch { checked: root.settings.restore; onToggled: root.change({ restore: checked }) }
@@ -96,6 +102,12 @@ Item {
                     onActivated: index => root.change({ zoom: root.sizes[index] })
                     Binding { target: size; property: "currentIndex"; value: root.sizes.indexOf(root.settings.zoom) }
                 }
+            }
+            SettingRow {
+                width: parent.width
+                title: "Graphics card"
+                text: "Draw pages and play video with the graphics card. From the next start of the browser; chrome://gpu shows what is in use"
+                Switch { checked: root.settings.gpu; onToggled: root.change({ gpu: checked }) }
             }
             SettingRow {
                 width: parent.width
