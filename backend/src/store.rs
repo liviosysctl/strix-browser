@@ -1,7 +1,7 @@
-//! What the browser keeps between two sessions: the settings, the history, the bookmarks and
-//! the tabs that were open. Plain files: settings.json in the config folder, history.json,
-//! bookmarks.json and session.json in the data folder. Every change is written at once, to a new file that then takes the old one's
-//! place.
+//! What the browser keeps between two sessions: the settings, the history, the bookmarks, the
+//! essentials and the tabs that were open. Plain files: settings.json in the config folder,
+//! history.json, bookmarks.json, essentials.json and session.json in the data folder. Every
+//! change is written at once, to a new file that then takes the old one's place.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Places;
+use crate::{Places, icons};
 
 /// The pages kept in the history, newest first
 const HISTORY: usize = 5000;
@@ -67,6 +67,9 @@ pub struct Page {
     /// How often it was opened
     #[serde(default)]
     pub visits: u32,
+    /// Its small picture, as a file in the cache: said to the window, never kept
+    #[serde(default, skip_deserializing, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
 }
 
 pub struct Store {
@@ -74,9 +77,13 @@ pub struct Store {
     history_file: PathBuf,
     session_file: PathBuf,
     bookmarks_file: PathBuf,
+    essentials_file: PathBuf,
+    /// Where the small pictures of pages are kept (icons.rs)
+    pub icons: PathBuf,
     settings: Settings,
     history: Vec<Page>,
     bookmarks: Vec<Page>,
+    essentials: Vec<Page>,
 }
 
 impl Store {
@@ -84,7 +91,11 @@ impl Store {
         let settings_file = places.config.join("settings.json");
         let history_file = places.data.join("history.json");
         let bookmarks_file = places.data.join("bookmarks.json");
+        let essentials_file = places.data.join("essentials.json");
         Ok(Store {
+            icons: places.cache.join("icons"),
+            essentials: read(&essentials_file).unwrap_or_default(),
+            essentials_file,
             bookmarks: read(&bookmarks_file).unwrap_or_default(),
             bookmarks_file,
             settings: read(&settings_file).unwrap_or_default(),
@@ -93,6 +104,16 @@ impl Store {
             settings_file,
             history_file,
         })
+    }
+
+    /// The pages with the pictures the cache has for them
+    pub fn pictured(&self, mut pages: Vec<Page>) -> Vec<Page> {
+        for page in &mut pages {
+            if let Some(file) = icons::file(&self.icons, &page.url).filter(|file| file.exists()) {
+                page.icon = format!("file://{}", file.display());
+            }
+        }
+        pages
     }
 
     pub fn settings(&self) -> &Settings {
@@ -132,6 +153,7 @@ impl Store {
                 title: title.into(),
                 at: now(),
                 visits: visits + 1,
+                icon: String::new(),
             },
         );
         self.history.truncate(HISTORY);
@@ -181,12 +203,36 @@ impl Store {
                     title: title.into(),
                     at: now(),
                     visits: 0,
+                    icon: String::new(),
                 });
                 true
             }
         };
         write(&self.bookmarks_file, &self.bookmarks)?;
         Ok(kept)
+    }
+
+    /// The pages that stand as buttons over the tabs and on the start page, in the order they
+    /// were kept
+    pub fn essentials(&self) -> &[Page] {
+        &self.essentials
+    }
+
+    /// Keeps a page as an essential, or lets go of it when it is one
+    pub fn toggle_essential(&mut self, url: &str, title: &str) -> Result<(), String> {
+        match self.essentials.iter().position(|page| page.url == url) {
+            Some(index) => {
+                self.essentials.remove(index);
+            }
+            None => self.essentials.push(Page {
+                url: url.into(),
+                title: title.into(),
+                at: now(),
+                visits: 0,
+                icon: String::new(),
+            }),
+        }
+        write(&self.essentials_file, &self.essentials)
     }
 
     pub fn forget(&mut self) -> Result<(), String> {
@@ -325,6 +371,24 @@ mod tests {
         assert!(!store.bookmarked("https://nixos.org/"));
         let again: Vec<Page> = read(&store.bookmarks_file).unwrap();
         assert_eq!(again.len(), 1);
+    }
+
+    #[test]
+    fn an_essential_is_kept_in_its_order_and_let_go_by_the_same_step() {
+        let mut store = store("essentials");
+        store
+            .toggle_essential("https://nixos.org/", "NixOS")
+            .unwrap();
+        store
+            .toggle_essential("https://example.org/", "Example Domain")
+            .unwrap();
+        assert_eq!(store.essentials()[1].url, "https://example.org/");
+        store
+            .toggle_essential("https://nixos.org/", "NixOS")
+            .unwrap();
+        assert_eq!(store.essentials().len(), 1);
+        let again: Vec<Page> = read(&store.essentials_file).unwrap();
+        assert_eq!(again[0].title, "Example Domain");
     }
 
     #[test]

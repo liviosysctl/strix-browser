@@ -2,7 +2,8 @@
 //!
 //! - the request filter: Qt WebEngine asks about every request a page makes, and the filter lists
 //!   of uBlock Origin decide (`filter`),
-//! - the history, the tabs of the last session and the settings (`store`),
+//! - the history, the bookmarks, the essentials, the tabs of the last session and the settings
+//!   (`store`), the small pictures of pages (`icons`),
 //! - the line to the window: one JSON object per line over a Unix socket, the protocol of every
 //!   Strix front end (`talk`).
 //!
@@ -11,6 +12,7 @@
 //! browser has gone. `backend --flags` only prints what Chromium is started with, by the settings.
 
 mod filter;
+mod icons;
 mod secrets;
 mod store;
 mod talk;

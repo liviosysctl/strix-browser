@@ -14,6 +14,9 @@
 //!   bookmarks {text, limit}  the bookmarks that match what is typed
 //!   bookmark {url, title}    keep the page as a bookmark, or let go of it; answers which it is
 //!   bookmarked {url}         whether the page is a bookmark
+//!   essentials               the pages kept as buttons over the tabs and on the start page
+//!   essential {url, title}   keep the page as an essential, or let go of it; answers them all
+//!   icon {url, icon}         the small picture a page brought along, to keep for its host
 //!   logins {url}             the logins the keyring has for the page's origin
 //!   login {url, username, password}  keep a login in the keyring
 
@@ -29,6 +32,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::filter::Filter;
+use crate::icons;
 use crate::store::Store;
 
 pub fn serve(socket: &Path, store: Store, filter: Filter) -> Result<(), String> {
@@ -120,7 +124,7 @@ fn answer(
         }
         "history" => {
             let limit = params["limit"].as_u64().unwrap_or(50) as usize;
-            Ok(json!(store.search(text("text"), limit)))
+            Ok(json!(store.pictured(store.search(text("text"), limit))))
         }
         "forget" => {
             store.forget()?;
@@ -138,10 +142,23 @@ fn answer(
         }
         "bookmarks" => {
             let limit = params["limit"].as_u64().unwrap_or(50) as usize;
-            Ok(json!(store.bookmarks(text("text"), limit)))
+            Ok(json!(store.pictured(store.bookmarks(text("text"), limit))))
         }
         "bookmark" => Ok(json!(store.toggle_bookmark(text("url"), text("title"))?)),
         "bookmarked" => Ok(json!(store.bookmarked(text("url")))),
+        "essentials" => Ok(json!(store.pictured(store.essentials().to_vec()))),
+        "essential" => {
+            store.toggle_essential(text("url"), text("title"))?;
+            Ok(json!(store.pictured(store.essentials().to_vec())))
+        }
+        "icon" => {
+            // Fetching takes its time: nothing else waits for it
+            let folder = store.icons.clone();
+            drop(store);
+            // A page without its picture shows its letter: not worth a word
+            let _ = icons::keep(&folder, text("url"), text("icon"));
+            Ok(Value::Null)
+        }
         "logins" => {
             if !store.settings().passwords {
                 return Ok(json!([]));
