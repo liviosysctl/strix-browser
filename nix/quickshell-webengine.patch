@@ -1,0 +1,62 @@
+diff -ru a/src/launch/CMakeLists.txt b/src/launch/CMakeLists.txt
+--- a/src/launch/CMakeLists.txt	2026-11-23 15:54:58.460905670 +0100
++++ b/src/launch/CMakeLists.txt	2026-11-23 15:54:58.565656696 +0100
+@@ -1,4 +1,5 @@
+ find_package(CLI11 CONFIG REQUIRED)
++find_package(Qt6 REQUIRED COMPONENTS WebEngineQuick)
+ 
+ qt_add_library(quickshell-launch STATIC
+ 	parsecommand.cpp
+@@ -8,7 +9,7 @@
+ )
+ 
+ target_link_libraries(quickshell-launch PRIVATE
+-	Qt::Quick Qt::Widgets CLI11::CLI11 quickshell-build
++	Qt::Quick Qt::Widgets Qt::WebEngineQuick CLI11::CLI11 quickshell-build
+ )
+ 
+ qs_add_pchset(launch
+diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
+--- a/src/launch/launch.cpp	2026-11-23 15:54:58.460937630 +0100
++++ b/src/launch/launch.cpp	2026-11-23 16:08:25.729649107 +0100
+@@ -15,6 +15,7 @@
+ #include <qstring.h>
+ #include <qtenvironmentvariables.h>
+ #include <qtextstream.h>
++#include <qtwebenginequickglobal.h>
+ #include <unistd.h>
+ 
+ #include "../core/common.hpp"
+@@ -72,6 +73,7 @@
+ 
+ 	struct {
+ 		bool useQApplication = false;
++		bool webEngine = false;
+ 		bool nativeTextRendering = false;
+ 		bool desktopSettingsAware = true;
+ 		bool useSystemStyle = false;
+@@ -109,6 +111,7 @@
+ 				if (isDefaultEnv) pragmas.defaultEnv.insert(var, val);
+ 				else pragmas.envOverrides.insert(var, val);
+ 			} else if (pragma == "UseQApplication") pragmas.useQApplication = true;
++			else if (pragma == "EnableQtWebEngineQuick") pragmas.webEngine = true;
+ 			else if (pragma == "NativeTextRendering") pragmas.nativeTextRendering = true;
+ 			else if (pragma == "IgnoreSystemSettings") pragmas.desktopSettingsAware = false;
+ 			else if (pragma == "RespectSystemStyle") pragmas.useSystemStyle = true;
+@@ -279,8 +282,15 @@
+ 
+ 	QGuiApplication::setDesktopSettingsAware(pragmas.desktopSettingsAware);
+ 
++	// Qt WebEngine has to be set up before the application object exists.
++	if (pragmas.webEngine) {
++		QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
++		QtWebEngineQuick::initialize();
++	}
++
+ 	QGuiApplication* app = nullptr;
+-	auto qArgC = 0;
++	// Chromium reads the program name from the argument list and refuses an empty one.
++	auto qArgC = pragmas.webEngine ? 1 : 0;
+ 
+ 	if (pragmas.useQApplication) {
+ 		app = new QApplication(qArgC, argv);
