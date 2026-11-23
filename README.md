@@ -2,8 +2,17 @@
 
 The browser of [Strix](https://github.com/liviosysctl/StrixOS): Chromium for the pages, everything
 around them drawn with the QML module of [StrixUI](https://github.com/liviosysctl/StrixUI), in the
-colours of the session's theme. Tabs stand down the left side, the address over the page. The
-search of the shell grows into this window, so both use the same plate, measures and rows.
+colours of the session's theme. Its frame follows the Zen browser: everything but the page
+stands in a strip down the left side (back and forward, where the page is, the essentials, the
+tabs), and the page has the rest of the window. The address is one field that floats over the
+page when it is asked for, as the search of the shell floats over the desktop; that search grows
+into this window, so both use the same plate, measures and rows.
+
+Essentials are pages kept as buttons at the top of the strip: one press opens the page or goes
+to it. While no page is shown the start page stands in its place, with the hour, the address,
+the essentials, the bookmarks and what was opened lately. Tabs are carried to another place with
+the pointer; the right button has a menu on a tab and in a page. What a page says or asks
+(alert, confirm, a name and a password) is drawn by the window, not by Qt.
 
 ## How it is built
 
@@ -12,7 +21,7 @@ search of the shell grows into this window, so both use the same plate, measures
 | Pages | Qt WebEngine (Chromium), one view for every tab |
 | Windows | QML in `qml/`, run by Quickshell: `Browser.qml` is what the windows share, `BrowserWindow.qml` one window, `Options.qml` the settings |
 | Quickshell | The one of nixpkgs with `nix/quickshell-webengine.patch`: a pragma that sets up Qt WebEngine before the application starts, and a hook that asks a service about every request of a page. Only the browser runs this build; the shell of the desktop keeps the plain one |
-| Back end | Rust, in `backend/`: the request filter, the history, the bookmarks, the passwords, the tabs of the last session, the settings. One runs for the session, beside the browsers, and talks to the windows over a Unix socket, one JSON object per line |
+| Back end | Rust, in `backend/`: the request filter, the history, the bookmarks, the essentials, the pictures of pages, the passwords, the tabs of the last session, the settings. One runs for the session, beside the browsers, and talks to the windows over a Unix socket, one JSON object per line |
 | Passwords | A password typed into a page is offered to be kept, and filled in the next time on the same origin. They are kept in the keyring of the session (the Secret Service) and nowhere else; the back end reaches it through `secret-tool` |
 | Private windows | A browser of its own (`strix-browser --private`) whose pages leave nothing behind: no cookies and no cache on the disk, no history, no session. The filter still asks |
 | Streaming (DRM) | Qt WebEngine uses the Widevine module that Firefox fetches into its profile; the browser brings none of its own |
@@ -42,19 +51,29 @@ It needs the QML module of StrixUI in `QML_IMPORT_PATH` and the theme of the ses
 
 | Key | What it does |
 |---|---|
-| Ctrl T | A new tab |
-| Ctrl W | Closes the tab |
+| Ctrl T | The address, for a page in a new tab |
+| Ctrl L, Ctrl K, F6 | The address, to change the page that is shown |
+| Ctrl W | Closes what is shown; with nothing open, the window |
 | Ctrl Shift T | Brings the last closed tab back |
+| Ctrl Tab, Ctrl Shift Tab, Ctrl PgDown, Ctrl PgUp | The next tab, the one before |
+| Ctrl 1 to 8, Ctrl 9 | A tab by its place, the last tab |
+| Ctrl Shift PgUp, Ctrl Shift PgDown | Carries the tab up, down |
+| Alt 1 to 9 | An essential by its place |
+| Ctrl Shift D | Keeps the page as an essential, or lets go of it |
+| Ctrl D | Keeps the page as a bookmark, or lets go of it |
+| Alt Home | The start page |
 | Ctrl N | A new window |
 | Ctrl Shift N | A private window |
-| Ctrl D | Keeps the page as a bookmark, or lets go of it |
-| Ctrl Tab, Ctrl Shift Tab | The next tab, the one before |
-| Ctrl L | The address |
+| Ctrl Q | Leaves the browser |
 | Ctrl R, F5 | Loads the page again |
+| Ctrl Shift R, Ctrl F5 | Loads it again without the kept copy |
+| Esc | Stops a page that is loading |
 | Alt Left, Alt Right | Back, forward |
 | Ctrl F | Finds in the page |
 | Ctrl +, Ctrl -, Ctrl 0 | Larger, smaller, the size of the settings |
-| Ctrl , | The settings |
+| Ctrl U | The source of the page |
+| Ctrl Alt C | Puts the strip away, and brings it back |
+| Ctrl , | The settings, which also list these keys |
 | F12 | The developer tools, in a tab |
 
 ## What is not there

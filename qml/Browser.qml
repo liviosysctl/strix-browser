@@ -1,5 +1,5 @@
 // The browser: what all its windows share. The back end (backend/, Rust) keeps the settings, the
-// history, the bookmarks, the passwords and the tabs of the last session, and decides about
+// history, the bookmarks, the essentials, the passwords and the tabs of the last session, and decides about
 // every request a page makes with the filter lists of uBlock Origin; this file talks to it over
 // the line every Strix front end has (Backend, service "browser"). A window is BrowserWindow.
 //
@@ -27,6 +27,11 @@ Scope {
     property var filter: ({ enabled: true, rules: 0, blocked: 0, fetched: 0, fetching: false })
     /// What is being downloaded and what was, newest first
     property var downloads: []
+
+    /// The essentials: the pages that stand as buttons over the tabs and on the start page
+    /// ({ url, title, icon }), and their addresses
+    readonly property ListModel essentials: ListModel {}
+    property var pinned: []
 
     /// The windows, by a number each; `frames` holds the window of every number
     property var windows: []
@@ -60,6 +65,30 @@ Scope {
         root.filter = state.filter
     }
 
+    /// Keeps a page as an essential, or lets go of it when it is one
+    function pin(url, title) { root.call("essential", { url: url, title: title }, list => root.fill(list)) }
+
+    /// Brings the essentials in line with what the back end keeps, one row at a time: the pages
+    /// of the others stay loaded
+    function fill(list) {
+        list = list || []
+        for (let i = root.essentials.count - 1; i >= 0; i--) {
+            const url = root.essentials.get(i).url
+            if (list.some(page => page.url === url)) continue
+            for (const id of root.windows) if (root.frames[id]) root.frames[id].dropped(url)
+            root.essentials.remove(i)
+        }
+        for (let i = 0; i < list.length; i++) {
+            const page = list[i]
+            if (root.pinned.indexOf(page.url) < 0) root.essentials.append({ url: page.url, title: page.title, icon: page.icon || "" })
+            // The picture of a page comes when the page was opened once
+            else if (page.icon) root.essentials.setProperty(i, "icon", page.icon)
+        }
+        root.pinned = list.map(page => page.url)
+    }
+
+    function look() { root.call("essentials", {}, list => root.fill(list)) }
+
     function set(values) { root.call("set", values, state => root.take(state)) }
 
     /// A new window with the address it shows first and the tabs it brings along
@@ -74,6 +103,11 @@ Scope {
         delete root.frames[id]
         root.windows = root.windows.filter(other => other !== id)
         if (root.windows.length === 0) Qt.quit()
+    }
+
+    function quit() {
+        root.keep()
+        Qt.quit()
     }
 
     /// The window to open something in: the one that had the focus last
@@ -114,6 +148,7 @@ Scope {
             WebEngine.defaultProfile.storageName = "strix"
             WebEngine.defaultProfile.offTheRecord = false
         }
+        root.look()
         if (root.settings.downloads) WebEngine.defaultProfile.downloadPath = root.settings.downloads
         const first = Quickshell.env("STRIX_BROWSER_OPEN") || ""
         if (root.secret || !backend.connected) root.window(first, [])
@@ -134,7 +169,9 @@ Scope {
         target: "browser"
         function open(address: string): void {
             const frame = root.frame()
-            if (frame) frame.open(address)
+            // Started again without an address: the running one asks for a new tab
+            if (frame && address) frame.open(address)
+            else if (frame) frame.ask(true)
             root.shown = true
         }
         function reveal(): void { root.shown = true }

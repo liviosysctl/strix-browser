@@ -1,7 +1,7 @@
 // The settings of the browser, where the page stands: where a search goes, the filter, the
 // passwords, what comes back at the next start, when a tab in the background lets go of its
 // page, the size of pages, the graphics card, the history. The back end keeps them (store.rs); this page only shows them and says what was
-// chosen.
+// chosen. Under them the keys of the browser, to read.
 import QtQuick
 import Strix
 
@@ -25,6 +25,17 @@ Item {
         { name: "Startpage", address: "https://www.startpage.com/sp/search?query=%s" },
         { name: "Brave", address: "https://search.brave.com/search?q=%s" },
         { name: "Google", address: "https://www.google.com/search?q=%s" }
+    ]
+    /// The keys (BrowserWindow.qml), in the groups they are shown in
+    readonly property var keys: [
+        { name: "Tabs", rows: [["A page in a new tab", "Ctrl T"], ["Close what is shown", "Ctrl W"], ["Bring the last closed tab back", "Ctrl Shift T"],
+            ["Next and previous tab", "Ctrl Tab"], ["A tab by its place", "Ctrl 1…9"], ["Carry the tab up or down", "Ctrl Shift PgUp"],
+            ["An essential by its place", "Alt 1…9"]] },
+        { name: "Pages", rows: [["Change the address", "Ctrl L"], ["Back and forward", "Alt ← →"], ["Load again", "Ctrl R"], ["Find in the page", "Ctrl F"],
+            ["Larger, smaller, as set", "Ctrl + − 0"], ["Source of the page", "Ctrl U"], ["Developer tools", "F12"]] },
+        { name: "Keeping", rows: [["Keep as a bookmark", "Ctrl D"], ["Keep as an essential", "Ctrl Shift D"], ["Start page", "Alt Home"]] },
+        { name: "Windows", rows: [["New window", "Ctrl N"], ["Private window", "Ctrl Shift N"], ["The strip away and back", "Ctrl Alt C"],
+            ["Settings", "Ctrl ,"], ["Leave the browser", "Ctrl Q"]] }
     ]
     readonly property var rests: [5, 15, 60, 0]
     readonly property var sizes: [0.9, 1, 1.1, 1.25]
@@ -124,6 +135,32 @@ Item {
                     spacing: Theme.space2
                     Button { variant: "quiet"; text: "Clear history"; onClicked: root.forget() }
                     Button { variant: "quiet"; text: "Clear cache"; onClicked: root.emptyCache() }
+                }
+            }
+
+            Label { textStyle: "title"; color: Theme.text; text: "Keys"; topPadding: Theme.space6; bottomPadding: Theme.space3 }
+            Flow {
+                width: parent.width
+                spacing: Theme.space5
+                Repeater {
+                    model: root.keys
+                    Column {
+                        id: group
+                        required property var modelData
+                        width: (rows.width - Theme.space5) / 2
+                        spacing: Theme.space1
+                        Label { textStyle: "aside"; color: Theme.textMuted; text: group.modelData.name; bottomPadding: Theme.space1 }
+                        Repeater {
+                            model: group.modelData.rows
+                            Item {
+                                required property var modelData
+                                width: group.width
+                                height: Theme.control
+                                Label { anchors.verticalCenter: parent.verticalCenter; text: modelData[0]; color: Theme.textMuted }
+                                KeyCaps { anchors { right: parent.right; verticalCenter: parent.verticalCenter } keys: modelData[1] }
+                            }
+                        }
+                    }
                 }
             }
         }

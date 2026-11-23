@@ -95,6 +95,8 @@ let
       export QTWEBENGINE_CHROMIUM_FLAGS="$flags ''${QTWEBENGINE_CHROMIUM_FLAGS:-}"
       export QS_WEBENGINE_REQUEST_FILTER="''${XDG_RUNTIME_DIR:?}/strix/browser-filter.sock"
       export STRIX_BROWSER_OPEN="''${1:-}"
+      # Choosing a file is asked of the portal of the desktop, as every app of the session does
+      export QT_QPA_PLATFORMTHEME="''${QT_QPA_PLATFORMTHEME:-xdgdesktopportal}"
       exec qs -p "$qml"
     '';
   };
