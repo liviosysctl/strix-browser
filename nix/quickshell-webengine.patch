@@ -1,13 +1,16 @@
-diff -ru a/src/launch/CMakeLists.txt b/src/launch/CMakeLists.txt
+diff -ruN a/src/launch/CMakeLists.txt b/src/launch/CMakeLists.txt
 --- a/src/launch/CMakeLists.txt	2026-11-23 15:54:58.460905670 +0100
-+++ b/src/launch/CMakeLists.txt	2026-11-23 15:54:58.565656696 +0100
-@@ -1,4 +1,5 @@
++++ b/src/launch/CMakeLists.txt	2026-11-23 17:19:06.318818317 +0100
+@@ -1,14 +1,16 @@
  find_package(CLI11 CONFIG REQUIRED)
 +find_package(Qt6 REQUIRED COMPONENTS WebEngineQuick)
  
  qt_add_library(quickshell-launch STATIC
  	parsecommand.cpp
-@@ -8,7 +9,7 @@
+ 	command.cpp
+ 	launch.cpp
++	webengine.cpp
+ 	main.cpp
  )
  
  target_link_libraries(quickshell-launch PRIVATE
@@ -16,9 +19,9 @@ diff -ru a/src/launch/CMakeLists.txt b/src/launch/CMakeLists.txt
  )
  
  qs_add_pchset(launch
-diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
+diff -ruN a/src/launch/launch.cpp b/src/launch/launch.cpp
 --- a/src/launch/launch.cpp	2026-11-23 15:54:58.460937630 +0100
-+++ b/src/launch/launch.cpp	2026-11-23 16:08:25.729649107 +0100
++++ b/src/launch/launch.cpp	2026-11-23 17:19:06.277964215 +0100
 @@ -15,6 +15,7 @@
  #include <qstring.h>
  #include <qtenvironmentvariables.h>
@@ -27,7 +30,15 @@ diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
  #include <unistd.h>
  
  #include "../core/common.hpp"
-@@ -72,6 +73,7 @@
+@@ -27,6 +28,7 @@
+ #include "../ipc/ipc.hpp"
+ #include "build.hpp"
+ #include "launch_p.hpp"
++#include "webengine.hpp"
+ 
+ #if CRASH_HANDLER
+ #include "../crash/handler.hpp"
+@@ -72,6 +74,7 @@
  
  	struct {
  		bool useQApplication = false;
@@ -35,7 +46,7 @@ diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
  		bool nativeTextRendering = false;
  		bool desktopSettingsAware = true;
  		bool useSystemStyle = false;
-@@ -109,6 +111,7 @@
+@@ -109,6 +112,7 @@
  				if (isDefaultEnv) pragmas.defaultEnv.insert(var, val);
  				else pragmas.envOverrides.insert(var, val);
  			} else if (pragma == "UseQApplication") pragmas.useQApplication = true;
@@ -43,7 +54,7 @@ diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
  			else if (pragma == "NativeTextRendering") pragmas.nativeTextRendering = true;
  			else if (pragma == "IgnoreSystemSettings") pragmas.desktopSettingsAware = false;
  			else if (pragma == "RespectSystemStyle") pragmas.useSystemStyle = true;
-@@ -279,8 +282,15 @@
+@@ -279,8 +283,15 @@
  
  	QGuiApplication::setDesktopSettingsAware(pragmas.desktopSettingsAware);
  
@@ -60,3 +71,164 @@ diff -ru a/src/launch/launch.cpp b/src/launch/launch.cpp
  
  	if (pragmas.useQApplication) {
  		app = new QApplication(qArgC, argv);
+@@ -288,6 +299,12 @@
+ 		app = new QGuiApplication(qArgC, argv);
+ 	}
+ 
++	// The requests of the pages go past a filter service when one is named.
++	if (pragmas.webEngine) {
++		auto filter = qgetenv("QS_WEBENGINE_REQUEST_FILTER");
++		if (!filter.isEmpty()) qs::launch::installRequestFilter(filter, app);
++	}
++
+ 	LogManager::initThreadLogging();
+ 	LogManager::initFs();
+ 
+diff -ruN a/src/launch/webengine.cpp b/src/launch/webengine.cpp
+--- a/src/launch/webengine.cpp	1970-01-01 01:00:00.000000000 +0100
++++ b/src/launch/webengine.cpp	2026-11-23 17:19:15.077785091 +0100
+@@ -0,0 +1,128 @@
++#include "webengine.hpp"
++#include <cstring>
++#include <utility>
++
++#include <qbytearray.h>
++#include <qmutex.h>
++#include <qobject.h>
++#include <qquickwebengineprofile.h>
++#include <qurl.h>
++#include <qwebengineurlrequestinfo.h>
++#include <qwebengineurlrequestinterceptor.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++namespace qs::launch {
++
++namespace {
++
++// One line per request, "<type>\t<url>\t<page>\n", answered by "1\n" (block) or "0\n".
++// A service that is not there or does not answer in time lets the request through.
++class RequestFilter: public QWebEngineUrlRequestInterceptor {
++public:
++	explicit RequestFilter(QByteArray socketPath, QObject* parent)
++	    : QWebEngineUrlRequestInterceptor(parent)
++	    , socketPath(std::move(socketPath)) {}
++
++	~RequestFilter() override {
++		if (this->fd >= 0) ::close(this->fd);
++	}
++
++	Q_DISABLE_COPY_MOVE(RequestFilter);
++
++	void interceptRequest(QWebEngineUrlRequestInfo& info) override {
++		auto line = QByteArray(RequestFilter::typeName(info.resourceType()));
++		line += '\t';
++		line += info.requestUrl().toEncoded();
++		line += '\t';
++		line += info.firstPartyUrl().toEncoded();
++		line += '\n';
++
++		auto locker = QMutexLocker(&this->mutex);
++		if (this->ask(line)) info.block(true);
++	}
++
++private:
++	static const char* typeName(QWebEngineUrlRequestInfo::ResourceType type) {
++		switch (type) {
++		case QWebEngineUrlRequestInfo::ResourceTypeMainFrame: return "main_frame";
++		case QWebEngineUrlRequestInfo::ResourceTypeSubFrame: return "sub_frame";
++		case QWebEngineUrlRequestInfo::ResourceTypeStylesheet: return "stylesheet";
++		case QWebEngineUrlRequestInfo::ResourceTypeScript: return "script";
++		case QWebEngineUrlRequestInfo::ResourceTypeImage: return "image";
++		case QWebEngineUrlRequestInfo::ResourceTypeFontResource: return "font";
++		case QWebEngineUrlRequestInfo::ResourceTypeObject: return "object";
++		case QWebEngineUrlRequestInfo::ResourceTypeMedia: return "media";
++		case QWebEngineUrlRequestInfo::ResourceTypeXhr: return "xmlhttprequest";
++		case QWebEngineUrlRequestInfo::ResourceTypePing: return "ping";
++		case QWebEngineUrlRequestInfo::ResourceTypeCspReport: return "csp_report";
++		case QWebEngineUrlRequestInfo::ResourceTypeWebSocket: return "websocket";
++		default: return "other";
++		}
++	}
++
++	bool open() {
++		this->fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
++		if (this->fd < 0) return false;
++
++		// A page waits for this answer: a service that hangs must not hang the browser.
++		auto timeout = timeval {.tv_sec = 0, .tv_usec = 100000};
++		::setsockopt(this->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
++		::setsockopt(this->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
++
++		auto address = sockaddr_un {};
++		address.sun_family = AF_UNIX;
++		if (static_cast<size_t>(this->socketPath.size()) >= sizeof(address.sun_path)) {
++			this->drop();
++			return false;
++		}
++		memcpy(address.sun_path, this->socketPath.constData(), this->socketPath.size());
++
++		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
++		if (::connect(this->fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
++			this->drop();
++			return false;
++		}
++
++		return true;
++	}
++
++	void drop() {
++		if (this->fd >= 0) ::close(this->fd);
++		this->fd = -1;
++	}
++
++	bool ask(const QByteArray& line) {
++		// Twice: the service may have been started again since the last request.
++		for (auto attempt = 0; attempt < 2; attempt++) {
++			if (this->fd < 0 && !this->open()) return false;
++
++			auto sent = ::send(this->fd, line.constData(), line.size(), MSG_NOSIGNAL);
++			if (sent == line.size()) {
++				char answer[2] = {};
++				auto got = ::recv(this->fd, answer, sizeof(answer), MSG_WAITALL);
++				if (got == sizeof(answer)) return answer[0] == '1';
++			}
++
++			this->drop();
++		}
++
++		return false;
++	}
++
++	QByteArray socketPath;
++	QMutex mutex;
++	int fd = -1;
++};
++
++} // namespace
++
++void installRequestFilter(const QByteArray& socketPath, QObject* parent) {
++	QQuickWebEngineProfile::defaultProfile()->setUrlRequestInterceptor(
++	    new RequestFilter(socketPath, parent)
++	);
++}
++
++} // namespace qs::launch
+diff -ruN a/src/launch/webengine.hpp b/src/launch/webengine.hpp
+--- a/src/launch/webengine.hpp	1970-01-01 01:00:00.000000000 +0100
++++ b/src/launch/webengine.hpp	2026-11-23 17:19:06.187235116 +0100
+@@ -0,0 +1,12 @@
++#pragma once
++
++#include <qbytearray.h>
++#include <qobject.h>
++
++namespace qs::launch {
++
++/// Asks the service behind the Unix socket at `socketPath` about every request the default
++/// profile of Qt WebEngine makes, and blocks the ones it says to.
++void installRequestFilter(const QByteArray& socketPath, QObject* parent);
++
++} // namespace qs::launch

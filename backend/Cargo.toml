@@ -1,0 +1,21 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+description = "What the browser keeps and decides outside its window: the request filter, the history, the session, the settings"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "backend"
+path = "src/main.rs"
+
+[dependencies]
+adblock = "0.13.6"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+ureq = "3.5.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
