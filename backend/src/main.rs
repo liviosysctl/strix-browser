@@ -6,9 +6,12 @@
 //! - the line to the window: one JSON object per line over a Unix socket, the protocol of every
 //!   Strix front end (`talk`).
 //!
-//! `backend` runs until it is stopped; the command that starts the browser starts and stops it.
+//! `backend` serves every browser of the session, the usual one and private windows: a second
+//! one that is started finds the first and leaves. It ends by itself a while after the last
+//! browser has gone. `backend --flags` only prints what Chromium is started with, by the settings.
 
 mod filter;
+mod secrets;
 mod store;
 mod talk;
 
@@ -49,15 +52,41 @@ impl Places {
     }
 }
 
+/// What Chromium is told when the browser starts: with the graphics card switched on in the
+/// settings, to use it for drawing pages and for video also where its own list of known
+/// trouble would leave it out
+fn flags(settings: &store::Settings) -> String {
+    if !settings.gpu {
+        return "--disable-gpu".into();
+    }
+    [
+        "--ignore-gpu-blocklist",
+        "--enable-gpu-rasterization",
+        "--enable-zero-copy",
+        "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiIgnoreDriverChecks",
+    ]
+    .join(" ")
+}
+
 fn run() -> Result<(), String> {
     let places = Places::find()?;
+    if std::env::args().nth(1).as_deref() == Some("--flags") {
+        let settings = store::Store::open(&places).map(|store| store.settings().clone())?;
+        println!("{}", flags(&settings));
+        return Ok(());
+    }
+    // One back end for the session: another one that answers is the one
+    let socket = places.runtime.join("browser.sock");
+    if std::os::unix::net::UnixStream::connect(&socket).is_ok() {
+        return Ok(());
+    }
     for folder in [&places.runtime, &places.config, &places.data, &places.cache] {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
     }
     let store = store::Store::open(&places)?;
     let filter = filter::Filter::start(&places, store.settings().blocker)?;
     filter.listen(&places.runtime.join("browser-filter.sock"))?;
-    talk::serve(&places.runtime.join("browser.sock"), store, filter)
+    talk::serve(&socket, store, filter)
 }
 
 fn main() -> ExitCode {

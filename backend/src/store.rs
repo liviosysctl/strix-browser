@@ -1,6 +1,6 @@
-//! What the browser keeps between two sessions: the settings, the history and the tabs that were
-//! open. Plain files: settings.json in the config folder, history.json and session.json in the
-//! data folder. Every change is written at once, to a new file that then takes the old one's
+//! What the browser keeps between two sessions: the settings, the history, the bookmarks and
+//! the tabs that were open. Plain files: settings.json in the config folder, history.json,
+//! bookmarks.json and session.json in the data folder. Every change is written at once, to a new file that then takes the old one's
 //! place.
 
 use std::fs;
@@ -33,6 +33,10 @@ pub struct Settings {
     pub zoom: f64,
     /// Keep the history
     pub history: bool,
+    /// Draw pages and decode video with the graphics card; read when the browser starts
+    pub gpu: bool,
+    /// Offer to keep the passwords typed into pages, and fill them in
+    pub passwords: bool,
 }
 
 impl Default for Settings {
@@ -46,6 +50,8 @@ impl Default for Settings {
             downloads: String::new(),
             zoom: 1.0,
             history: true,
+            gpu: true,
+            passwords: true,
         }
     }
 }
@@ -67,15 +73,20 @@ pub struct Store {
     settings_file: PathBuf,
     history_file: PathBuf,
     session_file: PathBuf,
+    bookmarks_file: PathBuf,
     settings: Settings,
     history: Vec<Page>,
+    bookmarks: Vec<Page>,
 }
 
 impl Store {
     pub fn open(places: &Places) -> Result<Store, String> {
         let settings_file = places.config.join("settings.json");
         let history_file = places.data.join("history.json");
+        let bookmarks_file = places.data.join("bookmarks.json");
         Ok(Store {
+            bookmarks: read(&bookmarks_file).unwrap_or_default(),
+            bookmarks_file,
             settings: read(&settings_file).unwrap_or_default(),
             history: read(&history_file).unwrap_or_default(),
             session_file: places.data.join("session.json"),
@@ -130,22 +141,52 @@ impl Store {
     /// The pages whose address or title holds every word, the ones opened most often first when
     /// something is typed, else the newest first
     pub fn search(&self, text: &str, limit: usize) -> Vec<Page> {
-        let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
+        let words = words(text);
         let mut hits: Vec<&Page> = self
             .history
             .iter()
-            .filter(|page| {
-                let url = page.url.to_lowercase();
-                let title = page.title.to_lowercase();
-                words
-                    .iter()
-                    .all(|word| url.contains(word) || title.contains(word))
-            })
+            .filter(|page| holds(page, &words))
             .collect();
         if !words.is_empty() {
             hits.sort_by(|a, b| b.visits.cmp(&a.visits).then(b.at.cmp(&a.at)));
         }
         hits.into_iter().take(limit).cloned().collect()
+    }
+
+    /// The bookmarks that hold every word, in the order they were made
+    pub fn bookmarks(&self, text: &str, limit: usize) -> Vec<Page> {
+        let words = words(text);
+        self.bookmarks
+            .iter()
+            .filter(|page| holds(page, &words))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    pub fn bookmarked(&self, url: &str) -> bool {
+        self.bookmarks.iter().any(|page| page.url == url)
+    }
+
+    /// Keeps a page as a bookmark, or lets go of it when it is one; says which it is now
+    pub fn toggle_bookmark(&mut self, url: &str, title: &str) -> Result<bool, String> {
+        let kept = match self.bookmarks.iter().position(|page| page.url == url) {
+            Some(index) => {
+                self.bookmarks.remove(index);
+                false
+            }
+            None => {
+                self.bookmarks.push(Page {
+                    url: url.into(),
+                    title: title.into(),
+                    at: now(),
+                    visits: 0,
+                });
+                true
+            }
+        };
+        write(&self.bookmarks_file, &self.bookmarks)?;
+        Ok(kept)
     }
 
     pub fn forget(&mut self) -> Result<(), String> {
@@ -165,6 +206,19 @@ impl Store {
         }
         read(&self.session_file).unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
     }
+}
+
+fn words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_lowercase).collect()
+}
+
+/// The address or the title of the page holds every word
+fn holds(page: &Page, words: &[String]) -> bool {
+    let url = page.url.to_lowercase();
+    let title = page.title.to_lowercase();
+    words
+        .iter()
+        .all(|word| url.contains(word) || title.contains(word))
 }
 
 fn now() -> u64 {
@@ -245,6 +299,32 @@ mod tests {
         assert_eq!(store.history.len(), 2);
         store.forget().unwrap();
         assert!(store.search("", 10).is_empty());
+    }
+
+    #[test]
+    fn a_bookmark_is_kept_once_and_let_go_by_the_same_step() {
+        let mut store = store("bookmarks");
+        assert!(
+            store
+                .toggle_bookmark("https://nixos.org/", "NixOS")
+                .unwrap()
+        );
+        assert!(
+            store
+                .toggle_bookmark("https://example.org/", "Example Domain")
+                .unwrap()
+        );
+        assert!(store.bookmarked("https://nixos.org/"));
+        assert_eq!(store.bookmarks("", 10).len(), 2);
+        assert_eq!(store.bookmarks("exam", 10)[0].url, "https://example.org/");
+        assert!(
+            !store
+                .toggle_bookmark("https://nixos.org/", "NixOS")
+                .unwrap()
+        );
+        assert!(!store.bookmarked("https://nixos.org/"));
+        let again: Vec<Page> = read(&store.bookmarks_file).unwrap();
+        assert_eq!(again.len(), 1);
     }
 
     #[test]
