@@ -9,9 +9,10 @@ page when it is asked for, as the search of the shell floats over the desktop; t
 into this window, so both use the same plate, measures and rows.
 
 Essentials are pages kept as buttons at the top of the strip: one press opens the page or goes
-to it. While no page is shown the start page stands in its place, with the hour, the address,
-the essentials, the bookmarks and what was opened lately. Tabs are carried to another place with
-the pointer; the right button has a menu on a tab and in a page. What a page says or asks
+to it. While no page is shown the start page stands in its place, with the hour, the
+essentials, the bookmarks and what was opened lately; typing there lets the address float. Tabs
+and essentials are carried to another place with the pointer; the right button has a menu on a
+tab and in a page. What a page says or asks
 (alert, confirm, a name and a password) is drawn by the window, not by Qt.
 
 ## How it is built

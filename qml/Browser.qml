@@ -78,14 +78,21 @@ Scope {
             for (const id of root.windows) if (root.frames[id]) root.frames[id].dropped(url)
             root.essentials.remove(i)
         }
-        for (let i = 0; i < list.length; i++) {
-            const page = list[i]
+        for (const page of list) {
             if (root.pinned.indexOf(page.url) < 0) root.essentials.append({ url: page.url, title: page.title, icon: page.icon || "" })
-            // The picture of a page comes when the page was opened once
-            else if (page.icon) root.essentials.setProperty(i, "icon", page.icon)
+        }
+        // In the order the back end keeps, each with the picture it has by now: the picture of
+        // a page comes when the page was opened once
+        for (let i = 0; i < list.length; i++) {
+            for (let j = i + 1; j < root.essentials.count; j++) {
+                if (root.essentials.get(j).url === list[i].url) root.essentials.move(j, i, 1)
+            }
+            if (list[i].icon) root.essentials.setProperty(i, "icon", list[i].icon)
         }
         root.pinned = list.map(page => page.url)
     }
+    /// Carries an essential to another place among them
+    function arrange(url, to) { root.call("arrange", { url: url, to: to }, list => root.fill(list)) }
 
     function look() { root.call("essentials", {}, list => root.fill(list)) }
 

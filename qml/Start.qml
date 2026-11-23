@@ -1,7 +1,7 @@
-// The start page: what stands in the window while no page does. The hour, the address, the
-// essentials as large buttons, the bookmarks and what was opened lately. It is glass like the
-// rest of the window, so the picture of the desktop shows through. The address is the one field
-// of the window (Address.qml): this page only leaves its place free, `field`.
+// The start page: what stands in the window while no page does. The hour, the essentials as
+// large buttons, the bookmarks and what was opened lately, one under the other around the
+// middle of the page. It is glass like the rest of the window, so the picture of the desktop
+// shows through. It has no field of its own: Ctrl T, or simply typing, lets the address float.
 import QtQuick
 import Strix
 
@@ -13,15 +13,20 @@ Item {
     signal open(string address)
     /// An essential was chosen
     signal essential(string address)
+    /// The address is wanted, with these letters already typed
+    signal ask(string text)
 
     property var marks: []
     property var lately: []
     /// The field that takes the address of a new essential is out
     property bool adding: false
     property date now: new Date()
-    /// Where the address stands, in this page
-    readonly property rect field: Qt.rect(column.x, column.y + slot.y - flick.contentY, column.width, slot.height)
-    property int fieldHeight: Theme.control + 2 * Theme.space2
+
+    /// The width of a large essential and how many stand in a row
+    readonly property int tile: 148
+    readonly property int perRow: Math.max(1, Math.min(4, Math.floor((column.width + Theme.space2) / (tile + Theme.space2))))
+    /// The lists that have something to show
+    readonly property var lists: [{ name: "Bookmarks", pages: root.marks }, { name: "Opened lately", pages: root.lately }].filter(list => list.pages.length > 0)
 
     function look() {
         root.now = new Date()
@@ -43,43 +48,70 @@ Item {
     /// Where a page lives, for the end of its row
     function short(address) { return address.replace(/^[a-z]+:\/\/(www\.)?/, "").replace(/[\/?#].*$/, "") }
 
+    // A letter typed on the start page is the first letter of an address
+    Keys.onPressed: event => {
+        if (root.adding || event.text === "" || event.text.charCodeAt(0) < 32 || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) return
+        event.accepted = true
+        root.ask(event.text)
+    }
+
     Flickable {
         id: flick
         anchors.fill: parent
         anchors.margins: Theme.lineHair
-        contentHeight: column.implicitHeight + 2 * Theme.space7
+        contentHeight: column.y + column.implicitHeight + Theme.space6
         clip: contentHeight > height
 
         Column {
             id: column
-            x: Math.max(Theme.space5, (parent.width - width) / 2)
-            y: Theme.space7
-            width: Math.min(root.width - 2 * Theme.space5, 640)
-            spacing: Theme.space5
+            x: (flick.width - width) / 2
+            // A little above the middle while there is room
+            y: Math.max(Theme.space6, (flick.height - implicitHeight) * 0.36)
+            width: Math.min(flick.width - 2 * Theme.space5, 4 * root.tile + 3 * Theme.space2)
+            spacing: Theme.space6
 
+            // ------------------------------------------------------------ the hour
             Column {
-                width: parent.width
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Theme.space1
                 Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
                     textStyle: "clock"
                     text: Qt.formatTime(root.now, "hh:mm")
-                    Entrance {}
                 }
                 Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
                     textStyle: "motto"
                     color: Theme.textMuted
                     text: root.browser.secret ? "A private window: nothing of what is opened here is kept"
                         : root.now.toLocaleDateString(Qt.locale("en_GB"), "dddd, d MMMM")
-                    Entrance { delay: Theme.stagger }
+                }
+                // The way to a page: the address, which floats when it is asked for
+                Item {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: way.width + 2 * Theme.space3
+                    height: Theme.control + Theme.space4
+                    Row {
+                        id: way
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: Theme.space2
+                        spacing: Theme.space2
+                        KeyCaps { keys: "Ctrl T"; anchors.verticalCenter: parent.verticalCenter }
+                        Label { textStyle: "caption"; color: wayArea.containsMouse ? Theme.text : Theme.textFaint; text: "or type, to search or go to an address"; anchors.verticalCenter: parent.verticalCenter }
+                    }
+                    MouseArea {
+                        id: wayArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.ask("")
+                    }
                 }
             }
 
-            Item {
-                id: slot
-                width: parent.width
-                height: root.fieldHeight
-            }
             Label {
                 visible: !root.browser.connected && root.browser.begun
+                anchors.horizontalCenter: parent.horizontalCenter
                 textStyle: "caption"
                 color: Theme.warning
                 text: "The back end of the browser does not answer: nothing is kept and nothing is blocked."
@@ -90,9 +122,13 @@ Item {
                 width: parent.width
                 spacing: Theme.space2
 
-                Label { textStyle: "aside"; color: Theme.textMuted; text: "Essentials" }
+                Rule { width: parent.width }
+                Label { anchors.horizontalCenter: parent.horizontalCenter; textStyle: "aside"; color: Theme.textMuted; text: "Essentials" }
                 Flow {
-                    width: parent.width
+                    // As wide as its rows, so they stand around the middle
+                    readonly property int inRow: Math.min(root.perRow, root.browser.essentials.count + 1)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: inRow * root.tile + (inRow - 1) * Theme.space2
                     spacing: Theme.space2
 
                     Repeater {
@@ -101,8 +137,14 @@ Item {
                             required property string url
                             required title
                             required icon
+                            required property int index
                             large: true
-                            width: (column.width - 3 * Theme.space2) / 4
+                            width: root.tile
+                            place: index
+                            inRow: root.perRow
+                            gap: Theme.space2
+                            count: root.browser.essentials.count
+                            onArranged: to => root.browser.arrange(url, to)
                             address: url
                             onClicked: root.essential(url)
                             onDropped: root.browser.pin(url, title)
@@ -110,7 +152,7 @@ Item {
                     }
                     // One more
                     Rectangle {
-                        width: (column.width - 3 * Theme.space2) / 4
+                        width: root.tile
                         height: 96
                         radius: Theme.radiusMd
                         color: Theme.alpha(Theme.text, more.containsMouse || root.adding ? 0.07 : 0)
@@ -126,6 +168,7 @@ Item {
                             onClicked: {
                                 root.adding = !root.adding
                                 if (root.adding) fresh.field.forceActiveFocus()
+                                else root.forceActiveFocus()
                             }
                         }
                     }
@@ -133,48 +176,54 @@ Item {
                 TextField {
                     id: fresh
                     visible: root.adding
-                    width: parent.width / 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(parent.width, 2 * root.tile + Theme.space2)
                     iconName: "pin"
                     placeholderText: "Address of the page to keep here"
                     KeyCaps { keys: "Enter" }
-                    onAccepted: {
-                        if (text.trim() !== "") root.browser.pin(root.browser.address(text), "")
+                    function done() {
                         text = ""
                         root.adding = false
+                        root.forceActiveFocus()
                     }
-                    Keys.onEscapePressed: root.adding = false
+                    onAccepted: {
+                        if (text.trim() !== "") root.browser.pin(root.browser.address(text), "")
+                        done()
+                    }
+                    Keys.onEscapePressed: done()
                 }
                 Label {
                     visible: root.browser.essentials.count === 0 && !root.adding
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
                     textStyle: "caption"
                     color: Theme.textFaint
-                    width: parent.width
-                    wrapMode: Text.WordWrap
                     text: "Pages you open every day. The pin beside the address keeps the page that is shown; the right button lets go of one."
                 }
             }
 
             // ------------------------------------------------- bookmarks and the history
             Row {
-                width: parent.width
+                anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.space5
-                visible: root.marks.length > 0 || root.lately.length > 0
+                visible: root.lists.length > 0
 
                 Repeater {
-                    model: [{ name: "Bookmarks", pages: root.marks }, { name: "Opened lately", pages: root.lately }]
+                    model: root.lists
                     Column {
-                        id: half
+                        id: list
                         required property var modelData
-                        width: (parent.width - parent.spacing) / 2
-                        spacing: Theme.space1
-                        visible: modelData.pages.length > 0
+                        // Two lists share the width; one alone stands in the middle
+                        width: root.lists.length > 1 ? (column.width - Theme.space5) / 2 : Math.min(column.width, 2 * root.tile + 2 * Theme.space5)
+                        spacing: Theme.lineBold
 
-                        Label { textStyle: "aside"; color: Theme.textMuted; text: half.modelData.name; bottomPadding: Theme.space1 }
+                        Label { anchors.horizontalCenter: parent.horizontalCenter; textStyle: "aside"; color: Theme.textMuted; text: list.modelData.name; bottomPadding: Theme.space2 }
                         Repeater {
-                            model: half.modelData.pages
+                            model: list.modelData.pages
                             PageRow {
                                 required property var modelData
-                                width: half.width
+                                width: list.width
                                 title: modelData.title || modelData.url
                                 icon: modelData.icon || ""
                                 detail: root.short(modelData.url)

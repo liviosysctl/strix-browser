@@ -1,6 +1,6 @@
 // One window of the browser. Everything but the page stands in the strip down the left side:
 // back, forward and again, where the page is, the essentials (pages kept as buttons) and under
-// them the tabs. The page has the rest of the window to itself. The address is one field that
+// them the tabs. The page has the rest of the window to itself. The address is one plate that
 // floats over the page when it is asked for, as the search of the shell floats over the desktop;
 // that search grows into this window, so both use the same glass, measures and rows. While no
 // page is shown the start page stands in its place.
@@ -17,6 +17,7 @@
 //   Ctrl F finds in the page; Ctrl + - 0 the size; Ctrl U the source; F12 the developer tools
 //   Ctrl Alt C the strip away and back; Ctrl , the settings
 import QtQuick
+import QtQuick.Templates as T
 import QtQml
 import QtWebEngine
 import Quickshell
@@ -201,7 +202,7 @@ FloatingWindow {
     function ask(fresh) {
         window.options = false
         window.fresh = fresh || window.starting
-        if (!window.starting) window.asked = true
+        window.asked = true
         address.take(window.fresh ? "" : window.here)
     }
 
@@ -220,9 +221,10 @@ FloatingWindow {
         window.rest()
     }
 
-    /// The keys go to the page, or to the address while the start page stands
+    /// The keys go to the page, or to the start page while it stands
     function rest() {
-        if (window.starting) address.take("")
+        if (window.asked) return
+        if (window.starting) start.forceActiveFocus()
         else if (window.view && !window.options) window.view.forceActiveFocus()
     }
     onStartingChanged: window.rest()
@@ -465,7 +467,13 @@ FloatingWindow {
                         required property string url
                         required title
                         required icon
+                        required property int index
                         width: (buttons.width - 2 * buttons.spacing) / 3
+                        place: index
+                        inRow: 3
+                        gap: buttons.spacing
+                        count: browser.essentials.count
+                        onArranged: to => browser.arrange(url, to)
                         address: url
                         open: window.opened.indexOf(url) >= 0
                         selected: !window.options && !window.home && !!window.held && window.held.address === url
@@ -501,7 +509,6 @@ FloatingWindow {
             highlightMoveDuration: Theme.durBase
             highlightMoveVelocity: -1
             highlightResizeDuration: 0
-            add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast } }
             displaced: Transition { NumberAnimation { properties: "y"; duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeOut } }
             move: Transition { NumberAnimation { properties: "y"; duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeOut } }
 
@@ -659,9 +666,12 @@ FloatingWindow {
             anchors.fill: parent
             visible: window.starting
             browser: window.browser
-            fieldHeight: address.height
             onOpen: url => window.open(url)
             onEssential: url => window.essential(url)
+            onAsk: text => {
+                window.ask(true)
+                if (text !== "") address.begin(text)
+            }
         }
 
         // How far the page has come
@@ -940,19 +950,19 @@ FloatingWindow {
             }
         }
 
-        // The address: in its place on the start page, else floating in the upper part of the page
+        // The address floats in the upper part of the page while it is asked for
         Address {
             id: address
-            visible: window.asked || window.starting
+            visible: window.asked
             browser: window.browser
-            doing: window.fresh || window.starting ? "New tab" : "Go"
-            x: window.starting ? start.field.x : (parent.width - width) / 2
-            y: window.starting ? start.field.y : Math.round(parent.height * 0.16)
-            width: window.starting ? start.field.width : Math.min(640, parent.width - 2 * Theme.space5)
+            doing: window.fresh || window.starting ? "Open in a new tab" : "Go there"
+            x: Math.round((parent.width - width) / 2)
+            y: Math.round(parent.height * 0.16)
+            width: Math.min(640, parent.width - 2 * Theme.space5)
             onGo: text => window.go(text)
             onAway: {
                 window.asked = false
-                if (!window.starting) window.rest()
+                window.rest()
             }
         }
     }
@@ -961,6 +971,8 @@ FloatingWindow {
     Menu {
         id: tabMenu
         property int index: 0
+        // Drawn in the window, on a ground nothing shows through
+        popupType: T.Popup.Item
         background: Bar { implicitWidth: 220; elevation: "pop" }
         readonly property var tab: index < tabs.count ? tabs.get(index) : null
         MenuItem { text: "Load again"; iconName: "rotate-cw"; onTriggered: pages.itemAt(tabMenu.index).reload() }
@@ -981,7 +993,9 @@ FloatingWindow {
     // The right button in a page. Its ground lets nothing through: the page under it may be white
     Menu {
         id: pageMenu
-        background: Bar { implicitWidth: 240; elevation: "pop" }
+        popupType: T.Popup.Item
+        implicitWidth: 260
+        background: Bar { implicitWidth: 260; elevation: "pop" }
         readonly property bool onLink: !!window.spot.link
         readonly property bool onPicture: !!window.spot.picture
         readonly property bool onText: !!window.spot.text

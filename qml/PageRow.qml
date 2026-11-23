@@ -43,11 +43,15 @@ Item {
 
     implicitWidth: 320
     implicitHeight: Theme.control + Theme.space2 - Theme.lineBold
-    opacity: carried ? 0.6 : 1
+    // Carried, it follows the pointer over the others
+    opacity: carried ? 0.8 : 1
+    // The rows of a list lie over its highlight, the one that is carried over the other rows
+    z: carried ? 3 : 1
 
     Rectangle {
         anchors.fill: parent
         radius: Theme.radiusMd
+        transform: Translate { y: area.lift }
         color: row.hovered && !(row.glide && row.selected) || row.selected && !row.glide ? Theme.surfaceRaised : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
     }
@@ -55,6 +59,12 @@ Item {
         id: area
         property bool carrying: false
         property real from: 0
+        /// How far the row was carried: what is drawn of it moves by that much, the place
+        /// that takes the pointer stays
+        property real lift: 0
+        /// The left button is down on this row. Letting go ends it before the row is moved in
+        /// its list: a row that moves under the pointer is told so as if the pointer had moved
+        property bool held: false
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
@@ -65,19 +75,29 @@ Item {
             if (mouse.button === Qt.RightButton) row.asked(mouse.x, mouse.y)
             else if (mouse.button === Qt.LeftButton) {
                 area.from = mouse.y
+                area.held = true
                 row.clicked()
             }
         }
         onPositionChanged: mouse => {
-            if (!row.movable || !(mouse.buttons & Qt.LeftButton)) return
+            if (!row.movable || !area.held) return
             if (!area.carrying && Math.abs(mouse.y - area.from) > Theme.space2) area.carrying = true
-            if (area.carrying) row.carry(mouse.y)
+            if (!area.carrying) return
+            area.lift = mouse.y - area.from
+            row.carry(mouse.y)
         }
         onReleased: mouse => {
             if (mouse.button === Qt.MiddleButton && row.closable && area.containsMouse) row.closed()
+            area.held = false
             if (!area.carrying) return
             area.carrying = false
+            area.lift = 0
             row.drop()
+        }
+        onCanceled: {
+            area.held = false
+            area.carrying = false
+            area.lift = 0
         }
     }
 
@@ -86,6 +106,7 @@ Item {
         width: parent.width - x - Theme.space2
         height: parent.height
         spacing: Theme.space2
+        transform: Translate { y: area.lift }
 
         Item {
             width: Theme.icon
