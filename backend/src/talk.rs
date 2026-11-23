@@ -16,6 +16,7 @@
 //!   bookmarked {url}         whether the page is a bookmark
 //!   essentials               the pages kept as buttons over the tabs and on the start page
 //!   essential {url, title}   keep the page as an essential, or let go of it; answers them all
+//!   arrange {url, to}        carry an essential to another place; answers them all
 //!   icon {url, icon}         the small picture a page brought along, to keep for its host
 //!   logins {url}             the logins the keyring has for the page's origin
 //!   login {url, username, password}  keep a login in the keyring
@@ -149,6 +150,11 @@ fn answer(
         "essentials" => Ok(json!(store.pictured(store.essentials().to_vec()))),
         "essential" => {
             store.toggle_essential(text("url"), text("title"))?;
+            Ok(json!(store.pictured(store.essentials().to_vec())))
+        }
+        "arrange" => {
+            let to = params["to"].as_u64().unwrap_or(0) as usize;
+            store.arrange_essential(text("url"), to)?;
             Ok(json!(store.pictured(store.essentials().to_vec())))
         }
         "icon" => {

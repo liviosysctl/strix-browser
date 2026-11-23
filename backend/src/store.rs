@@ -235,6 +235,16 @@ impl Store {
         write(&self.essentials_file, &self.essentials)
     }
 
+    /// Carries an essential to another place among them
+    pub fn arrange_essential(&mut self, url: &str, to: usize) -> Result<(), String> {
+        let Some(from) = self.essentials.iter().position(|page| page.url == url) else {
+            return Ok(());
+        };
+        let page = self.essentials.remove(from);
+        self.essentials.insert(to.min(self.essentials.len()), page);
+        write(&self.essentials_file, &self.essentials)
+    }
+
     pub fn forget(&mut self) -> Result<(), String> {
         self.history.clear();
         write(&self.history_file, &self.history)
@@ -382,6 +392,10 @@ mod tests {
         store
             .toggle_essential("https://example.org/", "Example Domain")
             .unwrap();
+        assert_eq!(store.essentials()[1].url, "https://example.org/");
+        store.arrange_essential("https://example.org/", 0).unwrap();
+        assert_eq!(store.essentials()[0].url, "https://example.org/");
+        store.arrange_essential("https://example.org/", 9).unwrap();
         assert_eq!(store.essentials()[1].url, "https://example.org/");
         store
             .toggle_essential("https://nixos.org/", "NixOS")
